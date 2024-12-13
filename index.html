@@ -1,0 +1,12 @@
+<script>
+    const random = Math.floor(Math.random() * 1000);
+    const eventSource = new EventSource("http://127.0.0.1:3000/sse/" + random);
+
+    eventSource.onmessage = (event) => {
+        console.log("Received message:", event.data);
+    };
+
+    eventSource.onerror = (error) => {
+        console.error("Error with SSE connection:", error);
+    };
+</script>
