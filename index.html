@@ -3,10 +3,24 @@
     const eventSource = new EventSource("http://127.0.0.1:3000/sse/" + random);
 
     eventSource.onmessage = (event) => {
-        console.log("Received message:", event.data);
+        if (event.data === "close") {
+            eventSource.close();
+            return;
+        }
+
+        const messageElement = document.getElementById("message");
+        messageElement.appendChild(document.createElement("p")).textContent = event.data;
+
+
     };
 
     eventSource.onerror = (error) => {
         console.error("Error with SSE connection:", error);
     };
 </script>
+
+<body>
+    <h1>Server-Sent Events Example</h1>
+    <p>Open the console to see the messages from the server.</p>
+    <p id="message"></p>
+</body>

@@ -20,6 +20,7 @@ type Message struct {
 	ID        string    `json:"id"`
 	Timestamp time.Time `json:"timestamp"`
 	Message   string    `json:"message"`
+	Status    bool      `json:"status"`
 }
 
 func main() {
@@ -41,33 +42,78 @@ func main() {
 		c.Set("Transfer-Encoding", "chunked")
 
 		id := c.Params("id")
-
 		c.Status(fiber.StatusOK).Context().SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
-			var i int
+			msgChan := make(chan Message)
+			done := make(chan struct{})
+
+			msg := Message{
+				ID:        id,
+				Timestamp: time.Now().UTC().Add(7 * time.Hour),
+				Message:   fmt.Sprintf("wait queue"),
+				Status:    false,
+			}
+
+			// Timeout timer for 5 minutes
+			timeout := time.After(5 * time.Minute)
+
+			// Goroutine สำหรับ processData
+			go func() {
+				time.Sleep(10 * time.Second) // ตัวอย่างดีเลย์
+				msg = processData(msg)
+				msgChan <- msg
+				close(done)
+			}()
+
 			for {
-				i++
-				msg := Message{
-					ID:        id,
-					Timestamp: time.Now(),
-					Message:   fmt.Sprintf("The time is %v", time.Now()),
-				}
+				select {
+				case updatedMsg := <-msgChan:
+					jsonData, err := json.Marshal(updatedMsg)
+					if err != nil {
+						fmt.Printf("Error while marshalling JSON: %v\n", err)
+						break
+					}
 
-				jsonData, err := json.Marshal(msg)
-				if err != nil {
-					fmt.Printf("Error while marshalling JSON: %v\n", err)
-					break
-				}
+					fmt.Fprintf(w, "data: %s\n\n", jsonData)
+					err = w.Flush()
+					if err != nil {
+						fmt.Printf("Error while flushing: %v. Closing HTTP connection.\n", err)
+						return
+					}
 
-				fmt.Fprintf(w, "data: %s\n\n", jsonData)
-				// fmt.Println(string(jsonData))
+					if updatedMsg.Status {
+						fmt.Fprint(w, "data: close\n\n")
+						_ = w.Flush()
+						return
+					}
 
-				err = w.Flush()
-				if err != nil {
-					// Close the connection if flushing fails (e.g., client disconnects)
-					fmt.Printf("Error while flushing: %v of %v Closing http connection.\n", err, msg.ID)
-					break
+				case <-time.After(2 * time.Second):
+					// ส่งข้อความสถานะล่าสุดทุก 2 วินาที
+					msg.Timestamp = time.Now()
+					msg.Message = fmt.Sprintf("The time is %v", time.Now())
+
+					jsonData, err := json.Marshal(msg)
+					if err != nil {
+						fmt.Printf("Error while marshalling JSON: %v\n", err)
+						break
+					}
+
+					fmt.Fprintf(w, "data: %s\n\n", jsonData)
+					err = w.Flush()
+					if err != nil {
+						fmt.Printf("Error while flushing: %v. Closing HTTP connection.\n", err)
+						return
+					}
+
+				case <-timeout:
+					// ปิดการเชื่อมต่อเมื่อครบ 5 นาที
+					fmt.Fprint(w, "data: close\n\n")
+					_ = w.Flush()
+					fmt.Println("Connection timed out. Closing connection.")
+					return
+
+				case <-done:
+					return
 				}
-				time.Sleep(2 * time.Second)
 			}
 		}))
 
@@ -76,4 +122,10 @@ func main() {
 
 	// Start server
 	log.Fatal(app.Listen(":3000"))
+}
+
+func processData(msg Message) Message {
+	msg.Status = true
+	msg.Message = "success"
+	return msg
 }
